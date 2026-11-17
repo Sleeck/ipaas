@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+model_list:
+{% for m in ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] %}
+  - model_name: {{ m }}
+    litellm_params:
+      model: anthropic/{{ m }}
+      api_key: os.environ/ANTHROPIC_API_KEY
+      # Les modèles Claude 5.5 renvoient une erreur 400 sur ces paramètres.
+      # response_format : LiteLLM le traduit en "output_format", obsolète côté
+      # Anthropic ; PentAGI exige déjà du JSON pur dans son prompt système.
+      additional_drop_params: ["temperature", "top_p", "top_k", "reasoning_effort", "response_format"]
+{% endfor %}
+
+litellm_settings:
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

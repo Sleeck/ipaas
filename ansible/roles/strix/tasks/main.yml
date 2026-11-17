@@ -1,0 +1,53 @@
+---
+- name: Installation de Strix (pipx)
+  ansible.builtin.command:
+    cmd: pipx install strix-agent
+    creates: "{{ pipx_home }}/venvs/strix-agent"
+  environment:
+    PIPX_HOME: "{{ pipx_home }}"
+    PIPX_BIN_DIR: /usr/local/bin
+
+- name: Variables LLM de Strix (via LiteLLM)
+  ansible.builtin.copy:
+    dest: "{{ cred_dir }}/strix.env"
+    mode: "0600"
+    content: |
+      # Strix passe par LiteLLM (compatible OpenAI)
+      export STRIX_LLM="{{ llm.STRIX_LLM | default('', true) or ('openai/' ~ llm.CLAUDE_MODEL) }}"
+      export LLM_API_BASE="http://127.0.0.1:4000/v1"
+      export LLM_API_KEY="{{ sec.LITELLM_MASTER_KEY }}"
+  no_log: true
+
+- name: Chargement automatique dans le shell root
+  ansible.builtin.lineinfile:
+    path: /root/.bashrc
+    line: "[ -f /root/credentials/strix.env ] && . /root/credentials/strix.env"
+
+- name: Dossier de travail des scans
+  ansible.builtin.file:
+    path: /root/strix-work/logs
+    state: directory
+    mode: "0755"
+
+- name: Outil strix-scan
+  ansible.builtin.copy:
+    src: strix-scan
+    dest: /usr/local/bin/strix-scan
+    mode: "0755"
+
+- name: Image sandbox Strix (téléchargée une fois)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    img=$(grep -rhoE 'ghcr\.io/usestrix/strix-sandbox:[0-9A-Za-z._-]+' {{ pipx_home }}/venvs/strix-agent/lib/python3*/site-packages/strix | head -1)
+    [ -n "$img" ] || { echo "image-inconnue"; exit 0; }
+    docker image inspect "$img" >/dev/null 2>&1 && echo "present $img" || { docker pull -q "$img" >/dev/null; echo "pulled $img"; }
+  args:
+    executable: /bin/bash
+  register: strix_img
+  changed_when: strix_img.stdout is search('^pulled')
+
+- name: Version de Strix
+  ansible.builtin.command: strix --version
+  register: strix_version
+  check_mode: false
+  changed_when: false

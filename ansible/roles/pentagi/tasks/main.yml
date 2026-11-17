@@ -1,0 +1,124 @@
+---
+- name: Dossier PentAGI
+  ansible.builtin.file:
+    path: "{{ pentagi_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Configuration des agents (tous sur Claude via LiteLLM)
+  ansible.builtin.template:
+    src: claude-litellm.provider.yml.j2
+    dest: "{{ pentagi_dir }}/claude-litellm.provider.yml"
+    mode: "0644"
+  notify: Redémarrer pentagi
+
+- name: Fichier docker-compose.yml officiel
+  ansible.builtin.get_url:
+    url: "{{ pentagi_raw }}/docker-compose.yml"
+    dest: "{{ pentagi_dir }}/docker-compose.yml"
+    mode: "0644"
+    force: true
+
+# Attention : get_url avec force: false retélécharge quand même si le serveur
+# ignore If-Modified-Since (cas de GitHub) et écraserait le .env. On teste donc
+# explicitement l'existence des fichiers avant de les télécharger.
+- name: Fichiers déjà présents
+  ansible.builtin.stat:
+    path: "{{ pentagi_dir }}/{{ item.dest }}"
+  loop: "{{ pentagi_seed_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  register: pentagi_seed_stat
+
+- name: Fichiers de départ (.env et exemples montés par docker-compose), seulement s'ils manquent
+  ansible.builtin.get_url:
+    url: "{{ pentagi_raw }}/{{ item.item.src }}"
+    dest: "{{ pentagi_dir }}/{{ item.item.dest }}"
+    mode: "{{ item.item.mode }}"
+  loop: "{{ pentagi_seed_stat.results }}"
+  loop_control:
+    label: "{{ item.item.dest }}"
+  when: not item.stat.exists
+
+- name: Réglages du .env PentAGI
+  ansible.builtin.lineinfile:
+    path: "{{ pentagi_dir }}/.env"
+    regexp: '^{{ item.0 }}='
+    line: "{{ item.0 }}={{ item.1 }}"
+    mode: "0600"
+  loop:
+    - [PENTAGI_LISTEN_IP, "0.0.0.0"]
+    - [PENTAGI_LISTEN_PORT, "8443"]
+    - [PUBLIC_URL, "https://{{ server_ip }}:8443"]
+    - [CORS_ORIGINS, "https://localhost:8443,https://{{ server_ip }}:8443"]
+    - [COOKIE_SIGNING_SALT, "{{ sec.COOKIE_SIGNING_SALT }}"]
+    - [PENTAGI_POSTGRES_USER, postgres]
+    - [PENTAGI_POSTGRES_PASSWORD, "{{ sec.PENTAGI_POSTGRES_PASSWORD }}"]
+    - [LOCAL_SCRAPER_USERNAME, "{{ sec.LOCAL_SCRAPER_USERNAME }}"]
+    - [LOCAL_SCRAPER_PASSWORD, "{{ sec.LOCAL_SCRAPER_PASSWORD }}"]
+    - [SCRAPER_PRIVATE_URL, "https://{{ sec.LOCAL_SCRAPER_USERNAME }}:{{ sec.LOCAL_SCRAPER_PASSWORD }}@scraper/"]
+    - [NEO4J_PASSWORD, "{{ sec.NEO4J_PASSWORD }}"]
+    - [DOCKER_PUBLIC_IP, "{{ server_ip }}"]
+    - [ASK_USER, "false"]
+    - [DUCKDUCKGO_ENABLED, "true"]
+    - [SPLOITUS_ENABLED, "true"]
+    # LLM : uniquement LiteLLM (fournisseur "custom" de PentAGI)
+    - [LLM_SERVER_URL, "http://litellm:4000/v1"]
+    - [LLM_SERVER_KEY, "{{ sec.LITELLM_MASTER_KEY }}"]
+    - [LLM_SERVER_MODEL, "{{ llm.CLAUDE_MODEL }}"]
+    - [LLM_SERVER_PROVIDER, ""]
+    - [LLM_SERVER_CONFIG_PATH, /opt/pentagi/conf/custom.provider.yml]
+    - [PENTAGI_LLM_SERVER_CONFIG_PATH, "{{ pentagi_dir }}/claude-litellm.provider.yml"]
+    # Pas d'accès direct aux fournisseurs : tout passe par LiteLLM
+    - [OPEN_AI_KEY, ""]
+    - [ANTHROPIC_API_KEY, ""]
+    - [GEMINI_API_KEY, ""]
+    - [DEEPSEEK_API_KEY, ""]
+    - [MISTRAL_API_KEY, ""]
+    - [XAI_API_KEY, ""]
+    - [OLLAMA_SERVER_URL, ""]
+    - [EMBEDDING_PROVIDER, "{{ llm.EMBEDDING_PROVIDER | default('') }}"]
+    - [EMBEDDING_MODEL, "{{ llm.EMBEDDING_MODEL | default('') }}"]
+    - [EMBEDDING_URL, "{{ llm.EMBEDDING_URL | default('') }}"]
+    - [EMBEDDING_KEY, "{{ llm.EMBEDDING_KEY | default('') }}"]
+  loop_control:
+    label: "{{ item.0 }}"
+
+- name: Démarrage de PentAGI (téléchargement des images au premier passage)
+  ansible.builtin.command:
+    cmd: "docker compose up -d --remove-orphans --pull {{ 'always' if docker_pull_always | bool else 'missing' }}"
+    chdir: "{{ pentagi_dir }}"
+  register: pentagi_up
+  changed_when: pentagi_up.stderr is search('Created|Recreated|Started|Pulled')
+
+- name: Application des changements de configuration des agents
+  ansible.builtin.meta: flush_handlers
+
+- name: Attente de l'interface web PentAGI
+  ansible.builtin.uri:
+    url: https://127.0.0.1:8443/
+    validate_certs: false
+    status_code: [200, 301, 302, 307, 308]
+  register: pentagi_web
+  check_mode: false
+  until: pentagi_web is succeeded
+  retries: 90
+  delay: 5
+
+- name: Script de mise à jour de l'IP
+  ansible.builtin.copy:
+    src: pentagi-update-ip
+    dest: /usr/local/bin/pentagi-update-ip
+    mode: "0755"
+
+- name: Service de mise à jour de l'IP au démarrage
+  ansible.builtin.copy:
+    src: pentagi-update-ip.service
+    dest: /etc/systemd/system/pentagi-update-ip.service
+    mode: "0644"
+
+- name: Activation du service de mise à jour de l'IP
+  ansible.builtin.systemd:
+    name: pentagi-update-ip.service
+    enabled: true
+    daemon_reload: true

@@ -1,0 +1,40 @@
+---
+# --- À personnaliser ---------------------------------------------------------
+
+# Clé API Anthropic (https://console.anthropic.com > API Keys).
+# Ne l'écris pas ici en clair : passe-la au lancement
+#   -e anthropic_api_key=sk-ant-...
+# ou chiffre-la avec ansible-vault (voir README.md).
+# Vide = on garde celle déjà présente sur le serveur (/root/credentials/llm.env).
+anthropic_api_key: ""
+
+# Modèle Claude utilisé par PentAGI, Strix et Hermes :
+# claude-opus-5-5, claude-sonnet-5-5 ou claude-haiku-5-5
+claude_model: claude-opus-5-5
+
+# Mode d'approbation des commandes de Hermes : smart (recommandé) | manual | off
+hermes_approvals_mode: smart
+
+# Optionnel : embeddings pour la mémoire vectorielle de PentAGI (ex. Voyage AI)
+embedding_provider: ""   # voyageai
+embedding_model: ""      # voyage-3.5
+embedding_url: ""
+embedding_key: ""
+
+# Optionnel : modèle Strix (vide = openai/<claude_model> via LiteLLM)
+strix_llm: ""
+
+# Retélécharger les images Docker à chaque passage (mise à jour)
+docker_pull_always: false
+
+# Ignorer la vérification Ubuntu 24.04 / Python 3.12-3.13 (à tes risques)
+skip_os_check: false
+
+# --- Chemins et versions (normalement rien à changer) --------------------------
+cred_dir: /root/credentials
+pentagi_dir: /opt/pentagi
+litellm_dir: /opt/litellm
+pipx_home: /opt/pipx
+pentagi_raw: https://raw.githubusercontent.com/vxcontrol/pentagi/master
+litellm_image: ghcr.io/berriai/litellm:main-stable
+pentagi_api: https://127.0.0.1:8443/api/v1

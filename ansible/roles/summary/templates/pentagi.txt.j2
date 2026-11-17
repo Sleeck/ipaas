@@ -1,0 +1,29 @@
+=== PentAGI ===
+URL web          : https://{{ server_ip }}:8443   (certificat auto-signé)
+Login            : admin@pentagi.com
+Mot de passe     : {{ sec.PENTAGI_ADMIN_PASSWORD }}
+LLM              : {{ llm.CLAUDE_MODEL }} via LiteLLM (fournisseur "custom")
+
+PostgreSQL       : postgres / {{ sec.PENTAGI_POSTGRES_PASSWORD }}  (base pentagidb)
+Scraper          : {{ sec.LOCAL_SCRAPER_USERNAME }} / {{ sec.LOCAL_SCRAPER_PASSWORD }}
+Neo4j            : neo4j / {{ sec.NEO4J_PASSWORD }}
+Cookie salt      : {{ sec.COOKIE_SIGNING_SALT }}
+
+Config           : {{ pentagi_dir }}/.env
+Agents           : {{ pentagi_dir }}/claude-litellm.provider.yml
+Clés             : {{ cred_dir }}/llm.env
+Changement d'IP  : automatique au boot, ou manuel : pentagi-update-ip
+
+=== Strix ===
+Binaire          : strix  (ou strix-scan pour un scan en arrière-plan)
+Variables LLM    : {{ cred_dir }}/strix.env (chargées automatiquement dans le shell root)
+Exemple          : strix-scan start https://cible-autorisee.example -m quick
+
+=== Hermes Agent ===
+Lancer           : hermes            (conversation)
+                   hermes -z "liste les flows PentAGI"   (une seule demande)
+Modèle           : {{ llm.CLAUDE_MODEL }} via LiteLLM
+Skills           : pentagi, strix (chargées à chaque session)
+Outils           : pentagi-cli, strix-scan
+Jeton PentAGI    : {{ cred_dir }}/pentagi-api.env
+Config           : /root/.hermes/config.yaml

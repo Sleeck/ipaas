@@ -1,0 +1,6 @@
+---
+- name: Redémarrer pentagi
+  ansible.builtin.command:
+    cmd: docker compose restart pentagi
+    chdir: "{{ pentagi_dir }}"
+  changed_when: true

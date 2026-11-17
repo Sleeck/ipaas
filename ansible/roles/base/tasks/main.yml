@@ -1,0 +1,35 @@
+---
+- name: Paquets système et Docker
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - wget
+      - unzip
+      - openssl
+      - jq
+      - git
+      - pipx
+      - python3-venv
+      - docker.io
+      - docker-compose-v2
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    NEEDRESTART_MODE: a
+
+- name: Docker démarré et activé
+  ansible.builtin.systemd:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Dossier des identifiants (root uniquement)
+  ansible.builtin.file:
+    path: "{{ cred_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"

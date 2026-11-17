@@ -1,0 +1,43 @@
+---
+- name: Installation de Hermes Agent (pipx, paquet PyPI de Nous Research)
+  ansible.builtin.command:
+    cmd: pipx install hermes-agent
+    creates: "{{ pipx_home }}/venvs/hermes-agent"
+  environment:
+    PIPX_HOME: "{{ pipx_home }}"
+    PIPX_BIN_DIR: /usr/local/bin
+
+- name: Configuration par défaut de Hermes (premier passage)
+  ansible.builtin.command:
+    cmd: hermes config set model.provider custom
+    creates: /root/.hermes/config.yaml
+
+- name: Branchement de Hermes sur LiteLLM
+  ansible.builtin.script:
+    cmd: hermes-config.py
+    executable: "{{ pipx_home }}/venvs/hermes-agent/bin/python"
+  environment:
+    LITELLM_MASTER_KEY: "{{ sec.LITELLM_MASTER_KEY }}"
+    CLAUDE_MODEL: "{{ llm.CLAUDE_MODEL }}"
+    APPROVALS_MODE: "{{ hermes_approvals_mode }}"
+  register: hermes_cfg
+  changed_when: hermes_cfg.stdout is search('changed')
+  no_log: true
+
+- name: Skills Hermes pentagi et strix
+  ansible.builtin.copy:
+    src: "skills/{{ item }}/SKILL.md"
+    dest: "/root/.hermes/skills/{{ item }}/SKILL.md"
+    mode: "0644"
+  loop: [pentagi, strix]
+
+- name: Skills reconnues par Hermes
+  ansible.builtin.shell: |
+    set -o pipefail
+    hermes skills list 2>/dev/null | grep -cE '(pentagi|strix).*enabled' || true
+  args:
+    executable: /bin/bash
+  register: hermes_skills
+  check_mode: false
+  changed_when: false
+  failed_when: hermes_skills.stdout | int != 2

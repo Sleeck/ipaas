@@ -1,0 +1,27 @@
+---
+# PentAGI + Strix + Hermes Agent + LiteLLM (Claude) - version Ansible
+#
+#   Hermes Agent ──┬─ pentagi-cli ──> PentAGI ──┐
+#                  ├─ strix-scan ───> Strix ────┤
+#                  │                            ▼
+#                  └──────────────────> LiteLLM (127.0.0.1:4000) ──> API Anthropic (Claude)
+#
+# Même résultat que install-pentagi-strix.sh (mêmes fichiers dans /root/credentials) :
+# on peut passer de l'un à l'autre, et relancer ce playbook sans rien casser.
+#
+# Lancement : voir README.md
+
+- name: PentAGI + Strix + Hermes + LiteLLM
+  hosts: pentest
+  become: true
+  gather_facts: true
+  roles:
+    - { role: precheck, tags: [precheck, always] }
+    - { role: base, tags: [base] }
+    - { role: secrets, tags: [secrets, always] }
+    - { role: pentagi, tags: [pentagi] }
+    - { role: litellm, tags: [litellm] }
+    - { role: pentagi_api, tags: [pentagi_api, hermes] }
+    - { role: strix, tags: [strix] }
+    - { role: hermes, tags: [hermes] }
+    - { role: summary, tags: [summary, always] }

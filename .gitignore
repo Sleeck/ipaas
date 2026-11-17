@@ -1,0 +1,12 @@
+# Secrets et fichiers locaux : ne jamais versionner
+credentials/
+*.env
+!ansible/**/*.env.j2
+ansible/group_vars/vault.yml
+*.retry
+
+# Artefacts
+*.tar.gz
+*.zip
+__pycache__/
+*.pyc

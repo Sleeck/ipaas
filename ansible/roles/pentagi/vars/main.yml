@@ -1,0 +1,7 @@
+---
+# Fichiers téléchargés une seule fois (jamais écrasés ensuite)
+pentagi_seed_files:
+  - { src: .env.example, dest: .env, mode: "0600" }
+  - { src: examples/configs/custom-openai.provider.yml, dest: example.custom.provider.yml, mode: "0644" }
+  - { src: examples/configs/ollama-llama318b.provider.yml, dest: example.ollama.provider.yml, mode: "0644" }
+  - { src: examples/configs/bedrock.provider.yml, dest: example.bedrock.provider.yml, mode: "0644" }

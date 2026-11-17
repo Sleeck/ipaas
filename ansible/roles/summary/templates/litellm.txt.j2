@@ -1,0 +1,7 @@
+=== LiteLLM ===
+URL (serveur)    : http://127.0.0.1:4000/v1   (non exposé sur Internet)
+URL (docker)     : http://litellm:4000/v1     (réseau pentagi-network)
+Master key       : {{ sec.LITELLM_MASTER_KEY }}
+Modèles          : claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5
+Config           : {{ litellm_dir }}/config.yaml
+Clé Anthropic    : {{ cred_dir }}/llm.env (ANTHROPIC_API_KEY)

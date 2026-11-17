@@ -1,0 +1,25 @@
+---
+- name: Récapitulatifs dans /root/credentials
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ cred_dir }}/{{ item }}"
+    mode: "0600"
+  loop: [pentagi.txt, litellm.txt]
+  no_log: true
+
+- name: État des conteneurs
+  ansible.builtin.command: docker ps --format '{{ "{{" }}.Names{{ "}}" }} {{ "{{" }}.Status{{ "}}" }}'
+  register: containers
+  check_mode: false
+  changed_when: false
+
+- name: Résumé
+  ansible.builtin.debug:
+    msg:
+      - "PentAGI       : https://{{ server_ip }}:8443  (identifiants : cat {{ cred_dir }}/pentagi.txt)"
+      - "Conteneurs    : {{ containers.stdout_lines | join(' | ') }}"
+      - "LiteLLM       : {{ litellm_model_ids | default([]) | join(', ') }}"
+      - "Test Claude   : {{ claude_state | default('non lancé (rôle litellm ignoré)') }}"
+      - "Strix         : {{ strix_version.stdout | default('non vérifié') }}"
+      - "Hermes        : {{ 'skills pentagi + strix chargées' if (hermes_skills.stdout | default('0') | int) == 2 else 'non vérifié' }}"
+      - "pentagi-cli   : {{ pentagi_cli_test.stdout | default('non vérifié') | trim }}"

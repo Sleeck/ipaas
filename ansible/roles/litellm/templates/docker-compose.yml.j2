@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+services:
+  litellm:
+    image: {{ litellm_image }}
+    container_name: litellm
+    hostname: litellm
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports:
+      - 127.0.0.1:4000:4000
+    networks:
+      - pentagi-network
+networks:
+  pentagi-network:
+    external: true

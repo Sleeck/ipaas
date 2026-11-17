@@ -1,0 +1,110 @@
+---
+# --- Mot de passe admin : remplace admin / admin par celui des secrets -------
+- name: Connexion admin avec le mot de passe généré
+  ansible.builtin.uri:
+    url: "{{ pentagi_api }}/auth/login"
+    method: POST
+    validate_certs: false
+    body_format: json
+    body: { mail: admin@pentagi.com, password: "{{ sec.PENTAGI_ADMIN_PASSWORD }}" }
+    status_code: [200, 401, 403]
+  register: login_new
+  check_mode: false
+  no_log: true
+
+- name: Remplacement du mot de passe par défaut
+  when: login_new.status != 200
+  no_log: true
+  block:
+    - name: Connexion avec le mot de passe par défaut
+      ansible.builtin.uri:
+        url: "{{ pentagi_api }}/auth/login"
+        method: POST
+        validate_certs: false
+        body_format: json
+        body: { mail: admin@pentagi.com, password: admin }
+      register: login_default
+
+    - name: Nouveau mot de passe admin
+      ansible.builtin.uri:
+        url: "{{ pentagi_api }}/user/password"
+        method: PUT
+        validate_certs: false
+        headers: { Cookie: "{{ login_default.cookies_string }}" }
+        body_format: json
+        body:
+          current_password: admin
+          password: "{{ sec.PENTAGI_ADMIN_PASSWORD }}"
+          confirm_password: "{{ sec.PENTAGI_ADMIN_PASSWORD }}"
+      changed_when: true
+
+- name: Vérification de la connexion admin
+  ansible.builtin.uri:
+    url: "{{ pentagi_api }}/auth/login"
+    method: POST
+    validate_certs: false
+    body_format: json
+    body: { mail: admin@pentagi.com, password: "{{ sec.PENTAGI_ADMIN_PASSWORD }}" }
+  register: admin_session
+  check_mode: false
+  no_log: true
+
+# --- Jeton API pour pentagi-cli / Hermes --------------------------------------
+- name: Lecture du jeton existant
+  ansible.builtin.slurp:
+    src: "{{ cred_dir }}/pentagi-api.env"
+  register: token_file
+  failed_when: false
+  no_log: true
+
+- name: Jeton existant
+  ansible.builtin.set_fact:
+    pentagi_token: "{{ (token_file.content | default('') | b64decode | regex_search('PENTAGI_API_TOKEN=(\\S+)', '\\1') | default([''], true)) | first }}"
+  no_log: true
+
+- name: Validité du jeton existant
+  ansible.builtin.uri:
+    url: "{{ pentagi_api }}/flows/?type=page&page=1&pageSize=1"
+    validate_certs: false
+    headers: { Authorization: "Bearer {{ pentagi_token }}" }
+    status_code: [200, 401, 403]
+  register: token_check
+  check_mode: false
+  when: pentagi_token | length > 0
+  no_log: true
+
+- name: Création d'un jeton API (valable 3 ans)
+  when: pentagi_token | length == 0 or token_check.status != 200
+  no_log: true
+  block:
+    - name: Nouveau jeton (le slash final de /tokens/ est obligatoire)
+      ansible.builtin.uri:
+        url: "{{ pentagi_api }}/tokens/"
+        method: POST
+        validate_certs: false
+        headers: { Cookie: "{{ admin_session.cookies_string }}" }
+        body_format: json
+        body: { name: hermes-agent, ttl: 94608000 }
+        status_code: [201]
+      register: new_token
+
+    - name: Enregistrement du jeton
+      ansible.builtin.copy:
+        dest: "{{ cred_dir }}/pentagi-api.env"
+        mode: "0600"
+        content: |
+          PENTAGI_API_URL={{ pentagi_api }}
+          PENTAGI_API_TOKEN={{ new_token.json.data.token }}
+
+# --- Outil pentagi-cli ----------------------------------------------------------
+- name: Outil pentagi-cli
+  ansible.builtin.copy:
+    src: pentagi-cli
+    dest: /usr/local/bin/pentagi-cli
+    mode: "0755"
+
+- name: Test de pentagi-cli
+  ansible.builtin.command: pentagi-cli providers
+  register: pentagi_cli_test
+  check_mode: false
+  changed_when: false

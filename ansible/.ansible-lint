@@ -1,0 +1,5 @@
+---
+# Les faits llm, sec, server_ip, etc. sont volontairement partagés entre les rôles
+# (un rôle les calcule, les suivants les utilisent) : pas de préfixe par rôle.
+skip_list:
+  - var-naming[no-role-prefix]

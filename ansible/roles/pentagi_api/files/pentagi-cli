@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""pentagi-cli - pilote PentAGI via son API REST (utilisé par Hermes Agent).
+
+Exemples :
+  pentagi-cli list
+  pentagi-cli create "Teste la sécurité de https://cible-autorisee.example"
+  pentagi-cli show 3          pentagi-cli tasks 3
+  pentagi-cli messages 3 -n 20  pentagi-cli terminal 3 -n 20
+  pentagi-cli input 3 "Concentre-toi sur l'authentification"
+  pentagi-cli wait 3 --timeout 3600
+  pentagi-cli stop 3 | finish 3 | delete 3
+"""
+import argparse, json, os, ssl, sys, time, urllib.error, urllib.parse, urllib.request
+
+ENV_FILE = "/root/credentials/pentagi-api.env"
+CTX = ssl._create_unverified_context()  # certificat auto-signé local
+
+
+def load_cfg():
+    cfg = {}
+    try:
+        with open(ENV_FILE) as f:
+            for line in f:
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.strip().split("=", 1)
+                    cfg[k] = v
+    except OSError:
+        pass
+    url = os.environ.get("PENTAGI_API_URL", cfg.get("PENTAGI_API_URL", "https://127.0.0.1:8443/api/v1"))
+    token = os.environ.get("PENTAGI_API_TOKEN", cfg.get("PENTAGI_API_TOKEN"))
+    if not token:
+        sys.exit(f"Jeton PentAGI introuvable ({ENV_FILE})")
+    return url.rstrip("/"), token
+
+
+URL, TOKEN = load_cfg()
+
+
+def call(method, path, body=None, query=None):
+    url = URL + path
+    if query:
+        url += "?" + urllib.parse.urlencode(query)
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, context=CTX, timeout=60) as r:
+            raw = r.read()
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            msg = json.loads(raw).get("msg", raw.decode())
+        except Exception:
+            msg = raw.decode(errors="replace")
+        sys.exit(f"Erreur PentAGI HTTP {e.code} sur {method} {path} : {msg}")
+    except urllib.error.URLError as e:
+        sys.exit(f"PentAGI injoignable ({URL}) : {e.reason}")
+    if not raw:
+        return None
+    return json.loads(raw).get("data")
+
+
+def listing(path, last=None):
+    data = call("GET", path, query={"type": "page", "page": 1, "pageSize": 1000}) or {}
+    items = next((v for v in data.values() if isinstance(v, list)), []) if isinstance(data, dict) else data
+    items = sorted(items, key=lambda x: x.get("id", 0))
+    return items[-last:] if last else items
+
+
+def cut(s, n=400):
+    s = (s or "").strip()
+    return s if len(s) <= n else s[:n] + " […]"
+
+
+def out(obj, as_json):
+    if as_json:
+        print(json.dumps(obj, indent=2, ensure_ascii=False))
+        return True
+    return False
+
+
+def main():
+    p = argparse.ArgumentParser(prog="pentagi-cli", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--json", action="store_true", help="sortie JSON brute")
+    sp = p.add_subparsers(dest="cmd", required=True)
+    sp.add_parser("providers", help="fournisseurs LLM disponibles")
+    sp.add_parser("list", help="lister les flows")
+    c = sp.add_parser("create", help="créer un flow (lance l'agent)")
+    c.add_argument("task", help="consigne en langage naturel (cible + objectif)")
+    c.add_argument("--provider", default="custom", help="fournisseur PentAGI (défaut : custom = Claude via LiteLLM)")
+    for name, h in [("show", "détail d'un flow"), ("tasks", "tâches et résultats"),
+                    ("stop", "arrêter"), ("finish", "terminer"), ("delete", "supprimer"),
+                    ("usage", "consommation de tokens")]:
+        sp.add_parser(name, help=h).add_argument("id", type=int)
+    for name, h in [("messages", "journal des messages des agents"), ("terminal", "commandes exécutées")]:
+        x = sp.add_parser(name, help=h)
+        x.add_argument("id", type=int)
+        x.add_argument("-n", type=int, default=30, help="dernières N entrées")
+    i = sp.add_parser("input", help="envoyer une consigne à un flow en attente")
+    i.add_argument("id", type=int)
+    i.add_argument("text")
+    w = sp.add_parser("wait", help="attendre qu'un flow ne soit plus en cours")
+    w.add_argument("id", type=int)
+    w.add_argument("--timeout", type=int, default=3600)
+    w.add_argument("--interval", type=int, default=30)
+    a = p.parse_args()
+
+    if a.cmd == "providers":
+        d = call("GET", "/providers/")
+        if not out(d, a.json):
+            for pr in d or []:
+                print(f"{pr['name']:<10} modèle par défaut : {pr.get('default_model')}")
+    elif a.cmd == "list":
+        d = listing("/flows/")
+        if not out(d, a.json):
+            if not d:
+                print("Aucun flow.")
+            for f in d:
+                print(f"#{f['id']:<4} {f.get('status',''):<10} {f.get('created_at','')[:19]}  {f.get('title','')}")
+    elif a.cmd == "create":
+        d = call("POST", "/flows/", {"input": a.task, "provider": a.provider})
+        if not out(d, a.json):
+            print(f"Flow #{d['id']} créé (statut : {d.get('status')}). Suivi : pentagi-cli show {d['id']}")
+    elif a.cmd == "show":
+        d = call("GET", f"/flows/{a.id}")
+        if not out(d, a.json):
+            print(f"#{d['id']} [{d.get('status')}] {d.get('title','')}\n"
+                  f"modèle : {d.get('model_provider_name')}/{d.get('model')}  créé : {d.get('created_at','')[:19]}")
+    elif a.cmd == "tasks":
+        d = listing(f"/flows/{a.id}/tasks/")
+        if not out(d, a.json):
+            for t in d:
+                print(f"- tâche #{t['id']} [{t.get('status')}] {t.get('title','')}")
+                if t.get("result"):
+                    print("  résultat :", cut(t["result"], 1500))
+    elif a.cmd == "messages":
+        d = listing(f"/flows/{a.id}/msglogs/", a.n)
+        if not out(d, a.json):
+            for m in d:
+                print(f"[{m.get('type')}] {cut(m.get('message'))}")
+                if m.get("result"):
+                    print("   ->", cut(m["result"]))
+    elif a.cmd == "terminal":
+        d = listing(f"/flows/{a.id}/termlogs/", a.n)
+        if not out(d, a.json):
+            for t in d:
+                print(f"[{t.get('type')}] {cut(t.get('text'), 800)}")
+    elif a.cmd == "usage":
+        out(call("GET", f"/flows/{a.id}/usage"), True)
+    elif a.cmd in ("stop", "finish"):
+        call("PUT", f"/flows/{a.id}", {"action": a.cmd})
+        print(f"Flow #{a.id} : action {a.cmd} envoyée.")
+    elif a.cmd == "input":
+        call("PUT", f"/flows/{a.id}", {"action": "input", "input": a.text})
+        print(f"Consigne envoyée au flow #{a.id}.")
+    elif a.cmd == "delete":
+        call("DELETE", f"/flows/{a.id}")
+        print(f"Flow #{a.id} supprimé.")
+    elif a.cmd == "wait":
+        end = time.time() + a.timeout
+        while True:
+            st = (call("GET", f"/flows/{a.id}") or {}).get("status")
+            if st not in ("created", "running"):
+                print(f"Flow #{a.id} : {st}")
+                break
+            if time.time() > end:
+                print(f"Flow #{a.id} toujours {st} après {a.timeout}s")
+                sys.exit(3)
+            time.sleep(a.interval)
+
+
+if __name__ == "__main__":
+    main()

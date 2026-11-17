@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# strix-scan - lance et suit des scans Strix non interactifs (utilisé par Hermes Agent).
+#   strix-scan start <cible> [-m quick|standard|deep] [-i "consigne"] [-b budget_usd]
+#   strix-scan list            scans lancés et état
+#   strix-scan logs <id> [N]   dernières lignes du journal d'un scan
+#   strix-scan stop <id>       arrêter un scan
+#   strix-scan results         dossiers de résultats (rapports)
+set -euo pipefail
+WORK=/root/strix-work; LOGS=$WORK/logs
+[ -f /root/credentials/strix.env ] && . /root/credentials/strix.env
+cmd=${1:-help}; shift || true
+case "$cmd" in
+  start)
+    target=${1:?cible manquante}; shift
+    mode=standard; instr=""; budget=""
+    while [ $# -gt 0 ]; do case "$1" in
+      -m) mode=$2; shift 2 ;; -i) instr=$2; shift 2 ;; -b) budget=$2; shift 2 ;;
+      *) echo "option inconnue : $1" >&2; exit 1 ;; esac; done
+    id=$(date +%Y%m%d-%H%M%S)
+    args=(-n -t "$target" -m "$mode")
+    [ -n "$instr" ] && args+=(--instruction "$instr")
+    [ -n "$budget" ] && args+=(--max-budget "$budget")
+    cd "$WORK"
+    nohup strix "${args[@]}" > "$LOGS/$id.log" 2>&1 &
+    echo "$!" > "$LOGS/$id.pid"; echo "$target" > "$LOGS/$id.target"
+    echo "Scan $id lancé sur $target (mode $mode, pid $!). Suivi : strix-scan logs $id" ;;
+  list)
+    for p in "$LOGS"/*.pid; do [ -e "$p" ] || { echo "Aucun scan."; break; }
+      id=$(basename "$p" .pid); pid=$(cat "$p")
+      if kill -0 "$pid" 2>/dev/null; then st="en cours"; else st="terminé"; fi
+      echo "$id  $st  $(cat "$LOGS/$id.target" 2>/dev/null)"; done ;;
+  logs) tail -n "${2:-60}" "$LOGS/${1:?id manquant}.log" ;;
+  stop) kill "$(cat "$LOGS/${1:?id manquant}.pid")" && echo "Scan $1 arrêté." ;;
+  results) ls -1t "$WORK/strix_runs" 2>/dev/null || echo "Aucun résultat pour l'instant." ;;
+  *) sed -n '2,7p' "$0" ;;
+esac

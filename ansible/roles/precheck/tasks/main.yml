@@ -1,0 +1,31 @@
+---
+- name: Ubuntu 24.04 et Python 3.12/3.13 requis
+  ansible.builtin.assert:
+    that:
+      - ansible_distribution == 'Ubuntu'
+      - ansible_distribution_version == '24.04'
+      - ansible_python.version.major == 3
+      - ansible_python.version.minor in [12, 13]
+    fail_msg: >-
+      Ubuntu 24.04 requis (détecté : {{ ansible_distribution }} {{ ansible_distribution_version }},
+      Python {{ ansible_python.version.major }}.{{ ansible_python.version.minor }}).
+      Strix exige Python >= 3.12 et Hermes Agent Python < 3.14.
+      Pour forcer : -e skip_os_check=true
+    quiet: true
+  when: not (skip_os_check | bool)
+
+- name: Avertissement mémoire (4 Go recommandés)
+  ansible.builtin.debug:
+    msg: "ATTENTION : seulement {{ ansible_memtotal_mb }} Mo de RAM, 4 Go minimum recommandés."
+  when: ansible_memtotal_mb < 3500
+
+- name: Avertissement disque (20 Go libres recommandés)
+  ansible.builtin.debug:
+    msg: "ATTENTION : seulement {{ (root_mount.size_available / 1024**3) | round(1) }} Go libres sur /."
+  vars:
+    root_mount: "{{ ansible_mounts | selectattr('mount', 'equalto', '/') | first }}"
+  when: root_mount.size_available < 20 * 1024**3
+
+- name: IP principale du serveur
+  ansible.builtin.set_fact:
+    server_ip: "{{ ansible_default_ipv4.address }}"

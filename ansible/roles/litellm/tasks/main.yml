@@ -1,0 +1,83 @@
+---
+- name: Dossier LiteLLM
+  ansible.builtin.file:
+    path: "{{ litellm_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Clés de LiteLLM (seul composant qui voit la clé Anthropic)
+  ansible.builtin.copy:
+    dest: "{{ litellm_dir }}/.env"
+    mode: "0600"
+    content: |
+      ANTHROPIC_API_KEY={{ llm.ANTHROPIC_API_KEY | default('') }}
+      LITELLM_MASTER_KEY={{ sec.LITELLM_MASTER_KEY }}
+  no_log: true
+  notify: Recréer litellm
+
+- name: Configuration des modèles Claude
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ litellm_dir }}/config.yaml"
+    mode: "0644"
+  notify: Recréer litellm
+
+- name: Fichier docker-compose.yml de LiteLLM
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: "{{ litellm_dir }}/docker-compose.yml"
+    mode: "0644"
+
+- name: Démarrage de LiteLLM
+  ansible.builtin.command:
+    cmd: "docker compose up -d --pull {{ 'always' if docker_pull_always | bool else 'missing' }}"
+    chdir: "{{ litellm_dir }}"
+  register: litellm_up
+  changed_when: litellm_up.stderr is search('Created|Recreated|Started|Pulled')
+
+- name: Application des changements de configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Attente de LiteLLM
+  ansible.builtin.uri:
+    url: http://127.0.0.1:4000/health/liveliness
+  register: litellm_health
+  check_mode: false
+  until: litellm_health is succeeded
+  retries: 60
+  delay: 3
+
+- name: Modèles exposés par LiteLLM
+  ansible.builtin.uri:
+    url: http://127.0.0.1:4000/v1/models
+    headers:
+      Authorization: "Bearer {{ sec.LITELLM_MASTER_KEY }}"
+  register: litellm_models
+  check_mode: false
+  no_log: true
+
+- name: Test d'appel à Claude via LiteLLM (si une clé Anthropic est fournie)
+  ansible.builtin.uri:
+    url: http://127.0.0.1:4000/v1/chat/completions
+    method: POST
+    headers:
+      Authorization: "Bearer {{ sec.LITELLM_MASTER_KEY }}"
+    body_format: json
+    body:
+      model: "{{ llm.CLAUDE_MODEL }}"
+      max_tokens: 50
+      messages: [{ role: user, content: "Réponds juste: OK" }]
+    status_code: [200, 400, 401, 403, 404, 429, 500]
+    timeout: 120
+  register: claude_test
+  check_mode: false
+  when: llm.ANTHROPIC_API_KEY | default('') | length > 0
+  no_log: true
+
+- name: Résultat du test Claude
+  ansible.builtin.set_fact:
+    claude_state: >-
+      {{ 'pas de clé Anthropic (ajoute -e anthropic_api_key=...)' if claude_test is skipped
+         else ('OK (' ~ (claude_test.json.choices[0].message.content | trim) ~ ')') if claude_test.status == 200
+         else ('ÉCHEC HTTP ' ~ claude_test.status ~ ' : ' ~ ((claude_test.json.error.message | default(claude_test.msg)) | truncate(200))) }}
+    litellm_model_ids: "{{ litellm_models.json.data | map(attribute='id') | list }}"

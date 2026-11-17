@@ -1,0 +1,25 @@
+{% set prices = {
+  'claude-opus-5-5':   {'input': 4.00, 'output': 20.00, 'cache_read': 0.20},
+  'claude-sonnet-5-5': {'input': 2.00, 'output': 10.00, 'cache_read': 0.10},
+  'claude-haiku-5-5':  {'input': 0.10, 'output': 0.50,  'cache_read': 0.01},
+} %}
+{% set p = prices.get(llm.CLAUDE_MODEL, {'input': 0, 'output': 0, 'cache_read': 0}) %}
+{% set agents = [
+  ('simple', 4096), ('simple_json', 4096), ('primary_agent', 16000), ('assistant', 16000),
+  ('generator', 16000), ('refiner', 16000), ('adviser', 8192), ('reflector', 8192),
+  ('searcher', 8192), ('enricher', 8192), ('coder', 16000), ('installer', 8192), ('pentester', 16000),
+] %}
+# {{ ansible_managed }}
+# Tous les agents sur {{ llm.CLAUDE_MODEL }} via LiteLLM.
+# Pas de temperature/top_p/reasoning : les modèles Claude 5.5 les refusent.
+{% for name, max_tokens in agents %}
+
+{{ name }}:
+  model: "{{ llm.CLAUDE_MODEL }}"
+  n: 1
+  max_tokens: {{ max_tokens }}
+  price:
+    input: {{ p.input }}
+    output: {{ p.output }}
+    cache_read: {{ p.cache_read }}
+{% endfor %}
